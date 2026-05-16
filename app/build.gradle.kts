@@ -7,6 +7,7 @@ plugins {
 
 val crocSourceDir = rootProject.layout.projectDirectory.dir("third_party/croc-src")
 val crocOutputSo = layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libcroc.so").asFile
+val crocOutputSoX86 = layout.projectDirectory.file("src/main/jniLibs/x86_64/libcroc.so").asFile
 val goTelemetryDir = rootProject.layout.buildDirectory.dir("go/telemetry")
 val goCacheDir = rootProject.layout.buildDirectory.dir("go/cache")
 val goModCacheDir = rootProject.layout.buildDirectory.dir("go/mod-cache")
@@ -75,10 +76,64 @@ val buildCrocAndroidArm64 by tasks.registering(Exec::class) {
     }
 }
 
+val buildCrocAndroidX86 by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Build croc as shared library for Android x86_64."
+    workingDir = crocSourceDir.asFile
+
+    inputs.files(
+        fileTree(crocSourceDir) {
+            exclude(".git/**")
+            exclude("build/**")
+        }
+    )
+    outputs.file(crocOutputSoX86)
+
+    doFirst {
+        crocOutputSoX86.parentFile.mkdirs()
+    }
+
+    environment("GOENV", "off")
+    environment("GOWORK", "off")
+    environment("GOTELEMETRY", "off")
+    environment("GOTELEMETRYDIR", goTelemetryDir.get().asFile.absolutePath)
+    environment("GOCACHE", goCacheDir.get().asFile.absolutePath)
+    environment("GOMODCACHE", goModCacheDir.get().asFile.absolutePath)
+    environment("GOOS", "android")
+    environment("GOARCH", "amd64")
+    environment("CGO_ENABLED", "1")
+
+    commandLine(
+        goExecutable.get(),
+        "build",
+        "-mod=vendor",
+        "-tags=capi",
+        "-buildmode=c-shared",
+        "-trimpath",
+        "-buildvcs=false",
+        "-ldflags=-s -w -buildid=",
+        "-o",
+        crocOutputSoX86.absolutePath,
+        "./cmd/capi"
+    )
+
+    outputs.upToDateWhen { false }
+
+    doLast {
+        check(crocOutputSoX86.exists() && crocOutputSoX86.length() > 0) {
+            "libcroc.so (x86_64) was not created by Go build! Expected at ${crocOutputSoX86.absolutePath}"
+        }
+        logger.lifecycle("Built libcroc.so x86_64 (${crocOutputSoX86.length()} bytes) at ${crocOutputSoX86.absolutePath}")
+    }
+}
+
 afterEvaluate {
     val ndk = android.ndkDirectory.absolutePath
     buildCrocAndroidArm64.configure {
         environment("CC", "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang")
+    }
+    buildCrocAndroidX86.configure {
+        environment("CC", "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android26-clang")
     }
 }
 
@@ -137,6 +192,7 @@ android {
 
 tasks.matching { it.name == "preBuild" }.configureEach {
     dependsOn(buildCrocAndroidArm64)
+    dependsOn(buildCrocAndroidX86)
 }
 
 dependencies {
