@@ -33,7 +33,9 @@ jobs:
           go-version-file: third_party/croc-src/go.mod
 
       - name: Setup Android NDK
-        run: echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
+        run: |
+          echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses
+          echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "ndk;29.0.14033849"
 
       - name: Vendor Go dependencies
         run: cd third_party/croc-src && go mod vendor
@@ -93,7 +95,9 @@ jobs:
           go-version-file: third_party/croc-src/go.mod
 
       - name: Setup Android NDK
-        run: echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
+        run: |
+          echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses
+          echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "ndk;29.0.14033849"
 
       - name: Vendor Go dependencies
         run: cd third_party/croc-src && go mod vendor
