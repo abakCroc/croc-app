@@ -83,7 +83,7 @@ tasks.configureEach {
 android {
     namespace = "com.dking.crocapp"
     compileSdk = 35
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "29.0.14033849"
 
     defaultConfig {
         applicationId = "com.dking.crocapp"
