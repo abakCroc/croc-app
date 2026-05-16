@@ -50,7 +50,7 @@ class CrocBinaryManager(private val context: Context) {
                     phase = BinarySetupPhase.Error,
                     title = "Setup needs attention",
                     detail = "Failed to load the transfer engine.",
-                    errorMessage = "libcroc.so could not be loaded."
+                    errorMessage = CrocNative.loadError ?: "libcroc.so could not be loaded."
                 )
             }
             Log.i(TAG, "Croc binary ready: $ready")

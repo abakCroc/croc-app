@@ -8,11 +8,18 @@ object CrocNative {
     private const val TAG = "CrocNative"
     var loaded = false
         private set
+    var loadError: String? = null
+        private set
 
     init {
-        System.loadLibrary("croc")
-        loaded = true
-        Log.i(TAG, "libcroc.so loaded via dlopen")
+        try {
+            System.loadLibrary("croc")
+            loaded = true
+            Log.i(TAG, "libcroc.so loaded via dlopen")
+        } catch (e: UnsatisfiedLinkError) {
+            loadError = "libcroc.so not found: ${e.message}"
+            Log.e(TAG, loadError!!, e)
+        }
     }
 
     external fun crocStart(configJson: String): Int

@@ -6,9 +6,8 @@ plugins {
 }
 
 val crocSourceDir = rootProject.layout.projectDirectory.dir("third_party/croc-src")
-val crocJniLibsRootDir = layout.buildDirectory.dir("generated/jniLibs/croc")
-val crocOutputDir = crocJniLibsRootDir.map { it.dir("arm64-v8a") }
-val crocOutputFile = crocOutputDir.map { it.file("libcroc.so") }
+val crocOutputDir = layout.projectDirectory.dir("src/main/jniLibs/arm64-v8a")
+val crocOutputFile = crocOutputDir.file("libcroc.so")
 val goTelemetryDir = rootProject.layout.buildDirectory.dir("go/telemetry")
 val goCacheDir = rootProject.layout.buildDirectory.dir("go/cache")
 val goModCacheDir = rootProject.layout.buildDirectory.dir("go/mod-cache")
@@ -69,6 +68,16 @@ val buildCrocAndroidArm64 by tasks.registering(Exec::class) {
         crocOutputFile.get().asFile.absolutePath,
         "./cmd/capi"
     )
+
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val so = crocOutputFile.get().asFile
+        check(so.exists() && so.length() > 0) {
+            "libcroc.so was not created by Go build! Expected at ${so.absolutePath}"
+        }
+        logger.lifecycle("Built libcroc.so (${so.length()} bytes) at ${so.absolutePath}")
+    }
 }
 
 tasks.configureEach {
@@ -116,13 +125,9 @@ android {
         compose = true
         buildConfig = true
     }
-    sourceSets {
-        getByName("main") {
-            jniLibs.srcDir(crocJniLibsRootDir)
-        }
-    }
     packaging {
         jniLibs {
+            useLegacyPackaging = true
             keepDebugSymbols += "**/libcroc.so"
         }
     }
