@@ -7,6 +7,7 @@ plugins {
 
 val crocSourceDir = rootProject.layout.projectDirectory.dir("third_party/croc-src")
 val crocOutputSo = layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libcroc.so").asFile
+val crocOutputSoArm = layout.projectDirectory.file("src/main/jniLibs/armeabi-v7a/libcroc.so").asFile
 val crocOutputSoX86 = layout.projectDirectory.file("src/main/jniLibs/x86_64/libcroc.so").asFile
 val goTelemetryDir = rootProject.layout.buildDirectory.dir("go/telemetry")
 val goCacheDir = rootProject.layout.buildDirectory.dir("go/cache")
@@ -49,7 +50,6 @@ val buildCrocAndroidArm64 by tasks.registering(Exec::class) {
     environment("GOMODCACHE", goModCacheDir.get().asFile.absolutePath)
     environment("GOOS", "android")
     environment("GOARCH", "arm64")
-    environment("GOARM64", "v8.0")
     environment("CGO_ENABLED", "1")
 
     commandLine(
@@ -76,6 +76,63 @@ val buildCrocAndroidArm64 by tasks.registering(Exec::class) {
     }
 }
 
+val buildCrocAndroidArm by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Build croc as shared library for Android armeabi-v7a."
+    workingDir = crocSourceDir.asFile
+
+    inputs.files(
+        fileTree(crocSourceDir) {
+            exclude(".git/**")
+            exclude("build/**")
+        }
+    )
+    outputs.file(crocOutputSoArm)
+
+    doFirst {
+        val vendorDir = crocSourceDir.dir("vendor").asFile
+        check(vendorDir.exists()) {
+            "Vendored croc dependencies are missing at ${vendorDir.absolutePath}. Run `go mod vendor` in third_party/croc-src."
+        }
+
+        crocOutputSoArm.parentFile.mkdirs()
+    }
+
+    environment("GOENV", "off")
+    environment("GOWORK", "off")
+    environment("GOTELEMETRY", "off")
+    environment("GOTELEMETRYDIR", goTelemetryDir.get().asFile.absolutePath)
+    environment("GOCACHE", goCacheDir.get().asFile.absolutePath)
+    environment("GOMODCACHE", goModCacheDir.get().asFile.absolutePath)
+    environment("GOOS", "android")
+    environment("GOARCH", "arm")
+    environment("GOARM", "7")
+    environment("CGO_ENABLED", "1")
+
+    commandLine(
+        goExecutable.get(),
+        "build",
+        "-mod=vendor",
+        "-tags=capi",
+        "-buildmode=c-shared",
+        "-trimpath",
+        "-buildvcs=false",
+        "-ldflags=-s -w -buildid=",
+        "-o",
+        crocOutputSoArm.absolutePath,
+        "./cmd/capi"
+    )
+
+    outputs.upToDateWhen { false }
+
+    doLast {
+        check(crocOutputSoArm.exists() && crocOutputSoArm.length() > 0) {
+            "libcroc.so (armeabi-v7a) was not created by Go build!"
+        }
+        logger.lifecycle("Built libcroc.so armeabi-v7a (${crocOutputSoArm.length()} bytes)")
+    }
+}
+
 val buildCrocAndroidX86 by tasks.registering(Exec::class) {
     group = "build"
     description = "Build croc as shared library for Android x86_64."
@@ -90,6 +147,11 @@ val buildCrocAndroidX86 by tasks.registering(Exec::class) {
     outputs.file(crocOutputSoX86)
 
     doFirst {
+        val vendorDir = crocSourceDir.dir("vendor").asFile
+        check(vendorDir.exists()) {
+            "Vendored croc dependencies are missing at ${vendorDir.absolutePath}. Run `go mod vendor` in third_party/croc-src."
+        }
+
         crocOutputSoX86.parentFile.mkdirs()
     }
 
@@ -134,6 +196,9 @@ afterEvaluate {
     }
     buildCrocAndroidX86.configure {
         environment("CC", "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android26-clang")
+    }
+    buildCrocAndroidArm.configure {
+        environment("CC", "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi26-clang")
     }
 }
 
@@ -192,6 +257,7 @@ android {
 
 tasks.matching { it.name == "preBuild" }.configureEach {
     dependsOn(buildCrocAndroidArm64)
+    dependsOn(buildCrocAndroidArm)
     dependsOn(buildCrocAndroidX86)
 }
 
