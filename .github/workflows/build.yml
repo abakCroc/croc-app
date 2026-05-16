@@ -32,6 +32,9 @@ jobs:
         with:
           go-version-file: third_party/croc-src/go.mod
 
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+
       - name: Vendor Go dependencies
         run: cd third_party/croc-src && go mod vendor
 
@@ -88,6 +91,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: third_party/croc-src/go.mod
+
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
 
       - name: Vendor Go dependencies
         run: cd third_party/croc-src && go mod vendor

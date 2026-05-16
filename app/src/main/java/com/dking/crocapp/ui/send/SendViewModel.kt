@@ -6,7 +6,6 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dking.crocapp.CrocApp
-import com.dking.crocapp.croc.CrocBinaryManager
 import com.dking.crocapp.croc.CrocProcess
 import com.dking.crocapp.croc.CrocTransferState
 import com.dking.crocapp.data.db.TransferHistory
@@ -46,8 +45,7 @@ class SendViewModel(application: Application) : AndroidViewModel(application) {
 
     private val app = application as CrocApp
     private val prefsRepo = UserPreferencesRepository(application)
-    private val binaryManager = CrocBinaryManager(application)
-    private val crocProcess = CrocProcess(application, binaryManager, prefsRepo)
+    private val crocProcess = CrocProcess(application, prefsRepo)
 
     private val _uiState = MutableStateFlow(SendUiState())
     val uiState: StateFlow<SendUiState> = _uiState.asStateFlow()

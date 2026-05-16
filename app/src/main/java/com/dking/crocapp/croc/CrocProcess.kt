@@ -1,6 +1,7 @@
 package com.dking.crocapp.croc
 
 import android.content.Context
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.dking.crocapp.data.preferences.UserPreferencesRepository
 import kotlinx.coroutines.Dispatchers
@@ -12,29 +13,17 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.File
+import java.io.FileInputStream
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.InterruptedIOException
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URI
-import java.util.concurrent.TimeUnit
-import kotlin.coroutines.coroutineContext
 
-/**
- * Executes croc CLI commands and parses output for transfer progress.
- *
- * croc v10.4.2 global flags:
- *   --yes, --relay, --pass, --curve, --overwrite,
- *   --no-compress, --local, --throttleUpload, --internal-dns,
- *   --classic, --multicast, --ip, --relay6, --out, --quiet
- *
- * send-specific flags we also use on Android:
- *   --no-local, --no-multi, --ignore-stdin
- */
 class CrocProcess(
     private val context: Context,
-    private val binaryManager: CrocBinaryManager,
     private val prefsRepository: UserPreferencesRepository
 ) {
     companion object {
@@ -44,7 +33,7 @@ class CrocProcess(
     private val _state = MutableStateFlow<CrocTransferState>(CrocTransferState.Idle)
     val state: StateFlow<CrocTransferState> = _state.asStateFlow()
 
-    private var currentProcess: Process? = null
+    private var pipeFd: Int = -1
 
     private data class ProcessResult(
         val exitCode: Int,
@@ -66,10 +55,6 @@ class CrocProcess(
         return if (code.isNullOrBlank()) emptyMap() else mapOf("CROC_SECRET" to code)
     }
 
-    /**
-     * Build common global flags from preferences.
-     * Only includes flags that actually exist in croc v10.4.2.
-     */
     private fun buildGlobalFlags(prefs: UserPreferencesRepository.CrocPreferences): List<String> {
         val relayAddress = resolveRelayAddress(prefs.relayAddress)
 
@@ -134,15 +119,14 @@ class CrocProcess(
     private fun isIpLiteral(host: String): Boolean {
         return host.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) || ":" in host
     }
-    
+
     suspend fun send(filePaths: List<String>, code: String? = null) {
         withContext(Dispatchers.IO) {
             try {
                 _state.value = CrocTransferState.Preparing
                 val prefs = prefsRepository.preferencesFlow.first()
-                val binaryPath = binaryManager.getBinaryPath()
 
-                val command = mutableListOf(binaryPath, "--yes").apply {
+                val command = mutableListOf("croc", "--yes").apply {
                     addAll(buildGlobalFlags(prefs))
                     add("--ignore-stdin")
                     add("send")
@@ -172,9 +156,8 @@ class CrocProcess(
             try {
                 _state.value = CrocTransferState.Preparing
                 val prefs = prefsRepository.preferencesFlow.first()
-                val binaryPath = binaryManager.getBinaryPath()
 
-                val command = mutableListOf(binaryPath, "--yes").apply {
+                val command = mutableListOf("croc", "--yes").apply {
                     addAll(buildGlobalFlags(prefs))
                     add("--ignore-stdin")
                     add("send")
@@ -203,10 +186,9 @@ class CrocProcess(
             try {
                 _state.value = CrocTransferState.Preparing
                 val prefs = prefsRepository.preferencesFlow.first()
-                val binaryPath = binaryManager.getBinaryPath()
                 outputDir.mkdirs()
 
-                val command = mutableListOf(binaryPath, "--yes", "--overwrite").apply {
+                val command = mutableListOf("croc", "--yes", "--overwrite").apply {
                     addAll(buildGlobalFlags(prefs))
                 }
 
@@ -226,14 +208,25 @@ class CrocProcess(
     }
 
     fun cancel() {
-        currentProcess?.let { try { it.destroyForcibly() } catch (_: Exception) {} }
-        currentProcess = null
+        try {
+            CrocNative.crocCancel()
+        } catch (_: Exception) {}
+        closePipeFd()
         _state.value = CrocTransferState.Cancelled
     }
 
     fun reset() {
         cancel()
         _state.value = CrocTransferState.Idle
+    }
+
+    private fun closePipeFd() {
+        if (pipeFd >= 0) {
+            try {
+                ParcelFileDescriptor.adoptFd(pipeFd).close()
+            } catch (_: Exception) {}
+            pipeFd = -1
+        }
     }
 
     private suspend fun executeWithDnsFallback(
@@ -252,13 +245,20 @@ class CrocProcess(
             val retryCommand = baseCommand.toMutableList()
             addInternalDnsFlag(retryCommand)
             Log.w(TAG, "$opName retry with --internal-dns: ${redactCommandForLog(retryCommand)}")
+            closePipeFd()
             result = runCommand(retryCommand, workDir, waitingState, extraEnv)
         }
 
-        // Check cancelled state FIRST — cancel() may have been called while parseOutput was running.
-        // Without this guard, a force-killed process can exit with code 0 and be mis-reported as Completed.
+        val exitCode = try {
+            CrocNative.crocWait()
+        } catch (_: Exception) {
+            -1
+        }
+        result = result.copy(exitCode = exitCode)
+        closePipeFd()
+
         if (_state.value is CrocTransferState.Cancelled) {
-            return // keep the Cancelled state intact
+            return
         }
 
         if (isSuccessfulTransfer(result)) {
@@ -285,13 +285,23 @@ class CrocProcess(
             put("TMPDIR", tmpDir.absolutePath)
             putAll(extraEnv)
         }
-        currentProcess = binaryManager.startProcess(
-            command = command,
-            workDir = workDir,
-            extraEnv = env
+
+        val configJson = CrocNative.buildConfigJson(
+            args = command,
+            env = env,
+            workDir = workDir.absolutePath
         )
+
+        pipeFd = CrocNative.crocStart(configJson)
+        if (pipeFd < 0) {
+            throw IllegalStateException("crocStart returned fd=$pipeFd")
+        }
+
         _state.value = waitingState
-        return parseOutput(currentProcess!!)
+
+        val pfd = ParcelFileDescriptor.adoptFd(pipeFd)
+        val inputStream = FileInputStream(pfd.fileDescriptor)
+        return parseOutput(inputStream)
     }
 
     private fun redactCommandForLog(command: List<String>): String {
@@ -364,7 +374,6 @@ class CrocProcess(
     private fun isSuccessfulTransfer(result: ProcessResult): Boolean {
         if (result.exitCode != 0 || hasCliUsageExit(result)) return false
         if (result.fileNames.isNotEmpty() || result.totalBytes > 0L) return true
-        // If we captured a peer IP, the transfer happened
         if (result.peerIp.isNotBlank()) return true
 
         return result.outputTail.any {
@@ -374,22 +383,8 @@ class CrocProcess(
         }
     }
 
-    private fun waitForExitCode(process: Process, timeoutMs: Long = 2_000): Int {
-        return try {
-            if (process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
-                val exitCode = process.exitValue()
-                Log.i(TAG, "croc exited: $exitCode")
-                exitCode
-            } else {
-                -1
-            }
-        } catch (_: Exception) {
-            -1
-        }
-    }
-
-    private suspend fun parseOutput(process: Process): ProcessResult {
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
+    private suspend fun parseOutput(inputStream: InputStream): ProcessResult {
+        val reader = BufferedReader(InputStreamReader(inputStream))
         val fileNames = mutableListOf<String>()
         var totalBytes = 0L
         var currentFileName = ""
@@ -400,19 +395,12 @@ class CrocProcess(
         var capturingText = false
         val receivedTextLines = mutableListOf<String>()
 
-        // Regex patterns for the v10.4.2 output format
-        // Matches: "Sending (->1.2.3.4:9009)" or "Receiving (<-1.2.3.4:9009)"
         val peerIpRegex = Regex("""(?:->|<-)(\d+\.\d+\.\d+\.\d+)""")
-        // Matches progress lines: "filename... 42% |...| (size) N/M" or "file.txt 42% |...| (size)"
-        // Filename may or may not be truncated with "..."
         val progressLineRegex = Regex("""^\s*(.+?)\s+(\d+)%\s*\|.*\|\s*\((.+?)\)\s*(?:(\d+)/(\d+))?""")
-        // Matches size: "(42/100 kB" or "(85/85 kB, 6.1 MB/s)"
         val sizeInProgressRegex = Regex("""(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*(\w+)""")
-        // Matches old format: Sending 'filename' (100 kB)
         val oldSendingRegex = Regex("""'([^']+)'""")
         val oldSizeRegex = Regex("""\((\d+(?:\.\d+)?)\s*(\w+)\)""")
 
-        // Track per-file sizes to compute total
         val fileSizeMap = mutableMapOf<String, Long>()
 
         try {
@@ -423,21 +411,16 @@ class CrocProcess(
                 outputTail.addLast(l)
                 if (outputTail.size > 50) outputTail.removeFirst()
 
-                // Skip blank / whitespace-only lines
                 if (l.isBlank()) continue
 
-                // Code announcement
                 if (l.contains("Code is:")) {
                     val code = l.substringAfter("Code is:").trim()
                     _state.value = CrocTransferState.WaitingForPeer(code)
                     continue
                 }
 
-                // Detect text transfer: "Receiving text message (5 B)"
-                // MUST be checked before the generic "Receiving" check below
                 if (l.contains("Receiving text message")) {
                     isTextTransfer = true
-                    // Parse text size from the prompt
                     oldSizeRegex.find(l)?.let { match ->
                         val num = match.groupValues[1].toDoubleOrNull() ?: 0.0
                         val unit = match.groupValues[2]
@@ -446,23 +429,19 @@ class CrocProcess(
                     continue
                 }
 
-                // If we are capturing text content, collect lines
                 if (capturingText) {
                     receivedTextLines.add(l)
                     continue
                 }
 
-                // Peer connection line: "Sending (->IP:PORT)" or "Receiving (<-IP:PORT)"
                 if (l.contains("Sending") || l.contains("Receiving")) {
                     peerIpRegex.find(l)?.let { match ->
                         peerIp = match.groupValues[1]
                     }
-                    // If this is a text transfer, start capturing text after the Receiving line
                     if (isTextTransfer && l.contains("Receiving")) {
                         capturingText = true
                         continue
                     }
-                    // Old format: Sending 'filename' (100 kB)
                     oldSendingRegex.find(l)?.let { match ->
                         currentFileName = match.groupValues[1]
                         if (currentFileName !in fileNames) fileNames.add(currentFileName)
@@ -475,7 +454,6 @@ class CrocProcess(
                     continue
                 }
 
-                // Progress line: "filename... 42% |████   | (42/100 kB, 1.2 MB/s) 1/3"
                 val progressMatch = progressLineRegex.find(l)
                 if (progressMatch != null) {
                     val match = progressMatch
@@ -485,12 +463,10 @@ class CrocProcess(
                     val currentFileNum = match.groupValues[4].toIntOrNull()
                     val totalFileNum = match.groupValues[5].toIntOrNull()
 
-                    // Update filename (use truncated name as display)
                     if (truncatedName.isNotBlank()) {
                         currentFileName = truncatedName
                     }
 
-                    // Parse per-file size from "(current/total unit)"
                     sizeInProgressRegex.find(sizeSection)?.let { sizeMatch ->
                         val fileTotal = sizeMatch.groupValues[2].toDoubleOrNull() ?: 0.0
                         val unit = sizeMatch.groupValues[3]
@@ -498,26 +474,21 @@ class CrocProcess(
                         fileSizeMap[currentFileName] = fileTotalBytes
                     }
 
-                    // Update file count from N/M suffix
                     if (totalFileNum != null && totalFileNum > 0) {
                         totalFilesFromProgress = totalFileNum
                     }
 
-                    // Track filenames from progress lines (100% = file done)
                     if (percent == 100 && currentFileName.isNotBlank()) {
                         if (currentFileName !in fileNames) {
                             fileNames.add(currentFileName)
                         }
                     }
 
-                    // Compute cumulative total bytes from all known file sizes
                     val cumulativeTotal = fileSizeMap.values.sum()
                     if (cumulativeTotal > 0) {
                         totalBytes = cumulativeTotal
                     }
 
-                    // Compute bytes transferred:
-                    // sum of completed files + current file progress
                     val completedBytes = fileNames.filter { it != currentFileName }
                         .sumOf { fileSizeMap[it] ?: 0L }
                     val currentFileSize = fileSizeMap[currentFileName] ?: 0L
@@ -539,7 +510,6 @@ class CrocProcess(
                     continue
                 }
 
-                // Fallback: simple percent match for lines we didn't parse above
                 Regex("(\\d+)%").find(l)?.let { match ->
                     val percent = match.groupValues[1].toIntOrNull() ?: 0
                     _state.value = CrocTransferState.Transferring(
@@ -554,12 +524,11 @@ class CrocProcess(
                 }
             }
 
-            val exitCode = waitForExitCode(process)
             val receivedText = if (isTextTransfer && receivedTextLines.isNotEmpty()) {
                 receivedTextLines.joinToString("\n")
             } else null
             return ProcessResult(
-                exitCode = exitCode,
+                exitCode = -1,
                 fileNames = fileNames,
                 totalBytes = totalBytes,
                 outputTail = outputTail.toList(),
@@ -568,14 +537,13 @@ class CrocProcess(
                 receivedText = receivedText
             )
         } catch (e: InterruptedIOException) {
-            val exitCode = waitForExitCode(process)
             if (_state.value is CrocTransferState.Cancelled || !coroutineContext.isActive) {
                 Log.i(TAG, "croc output interrupted during cancellation")
             } else {
                 Log.w(TAG, "croc output stream interrupted; using process exit state", e)
             }
             return ProcessResult(
-                exitCode = exitCode,
+                exitCode = -1,
                 fileNames = fileNames,
                 totalBytes = totalBytes,
                 outputTail = if (outputTail.isEmpty()) {

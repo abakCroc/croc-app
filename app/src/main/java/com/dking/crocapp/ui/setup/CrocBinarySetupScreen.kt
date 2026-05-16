@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -18,7 +17,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,7 +30,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dking.crocapp.croc.BinarySetupPhase
 import com.dking.crocapp.croc.BinarySetupState
-import java.util.Locale
 
 @Composable
 fun CrocBinarySetupScreen(
@@ -92,11 +89,11 @@ fun CrocBinarySetupScreen(
                 )
                 GuideCard(
                     eyebrow = "GOOD TO KNOW",
-                    title = "This setup only needs patience once.",
+                    title = "Transfers are peer-to-peer.",
                     body = listOf(
-                        "The first run downloads and prepares the croc engine.",
-                        "Later launches reuse that engine, so send and receive feel immediate.",
-                        "Keeping the app open on this screen is enough. No extra action needed."
+                        "Files go directly between devices — no cloud, no middleman.",
+                        "The croc engine is built into the app, so transfers start instantly.",
+                        "Works on the same Wi-Fi or across the internet."
                     )
                 )
             }
@@ -170,9 +167,6 @@ private fun HeroCard(
             )
 
             when (state.phase) {
-                BinarySetupPhase.Downloading,
-                BinarySetupPhase.Installing -> ProgressBlock(state)
-
                 BinarySetupPhase.Error -> {
                     Text(
                         text = state.errorMessage ?: "We couldn't prepare croc right now.",
@@ -205,7 +199,7 @@ private fun HeroCard(
                             strokeWidth = 2.5.dp
                         )
                         Text(
-                            text = "Checking your device and preparing the transfer engine.",
+                            text = "Loading the transfer engine.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -213,46 +207,6 @@ private fun HeroCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ProgressBlock(state: BinarySetupState) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (state.progress != null) {
-            LinearProgressIndicator(
-                progress = state.progress,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp)
-                    .clip(RoundedCornerShape(999.dp))
-            )
-        } else {
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp)
-                    .clip(RoundedCornerShape(999.dp))
-            )
-        }
-
-        val progressLabel = when {
-            state.totalBytes != null && state.downloadedBytes > 0L -> {
-                "${formatBytes(state.downloadedBytes)} / ${formatBytes(state.totalBytes)}"
-            }
-            state.phase == BinarySetupPhase.Installing -> {
-                "Almost there"
-            }
-            else -> {
-                "Preparing secure transfers"
-            }
-        }
-
-        Text(
-            text = progressLabel,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
@@ -308,9 +262,4 @@ private fun GuideCard(
             }
         }
     }
-}
-
-private fun formatBytes(bytes: Long): String {
-    val mb = bytes / (1024f * 1024f)
-    return String.format(Locale.US, "%.1f MB", mb)
 }

@@ -34,8 +34,8 @@ class CrocApp : Application() {
         }
 
         appScope.launch {
-            val ready = binaryManager.initialize()
-            Log.i(TAG, "Croc binary ready: $ready")
+            binaryManager.initialize()
+            Log.i(TAG, "Croc binary initialized")
         }
     }
 }

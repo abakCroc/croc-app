@@ -19,7 +19,7 @@ val goExecutable = providers.gradleProperty("crocGoExecutable")
 
 val buildCrocAndroidArm64 by tasks.registering(Exec::class) {
     group = "build"
-    description = "Build croc v10.4.2 for Android arm64 from vendored source."
+    description = "Build croc as shared library for Android arm64."
     workingDir = crocSourceDir.asFile
 
     inputs.files(
@@ -40,6 +40,9 @@ val buildCrocAndroidArm64 by tasks.registering(Exec::class) {
         goTelemetryDir.get().asFile.mkdirs()
         goCacheDir.get().asFile.mkdirs()
         goModCacheDir.get().asFile.mkdirs()
+
+        val ndk = android.ndkDirectory.absolutePath
+        environment("CC", "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang")
     }
 
     environment("GOENV", "off")
@@ -51,18 +54,20 @@ val buildCrocAndroidArm64 by tasks.registering(Exec::class) {
     environment("GOOS", "android")
     environment("GOARCH", "arm64")
     environment("GOARM64", "v8.0")
-    environment("CGO_ENABLED", "0")
+    environment("CGO_ENABLED", "1")
 
     commandLine(
         goExecutable.get(),
         "build",
         "-mod=vendor",
+        "-tags=capi",
+        "-buildmode=c-shared",
         "-trimpath",
         "-buildvcs=false",
         "-ldflags=-s -w -buildid=",
         "-o",
         crocOutputFile.get().asFile.absolutePath,
-        "."
+        "./cmd/capi"
     )
 }
 
