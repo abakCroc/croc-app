@@ -50,7 +50,8 @@ class CrocProcess(
     private val _state = MutableStateFlow<CrocTransferState>(CrocTransferState.Idle)
     val state: StateFlow<CrocTransferState> = _state.asStateFlow()
 
-    private var pipeFd: Int = -1
+    @Volatile
+    private var pipePfd: ParcelFileDescriptor? = null
 
     private data class ProcessResult(
         val exitCode: Int,
@@ -238,12 +239,11 @@ class CrocProcess(
     }
 
     private fun closePipeFd() {
-        if (pipeFd >= 0) {
-            try {
-                ParcelFileDescriptor.adoptFd(pipeFd).close()
-            } catch (_: Exception) {}
-            pipeFd = -1
-        }
+        val old = pipePfd
+        pipePfd = null
+        try {
+            old?.close()
+        } catch (_: Exception) {}
     }
 
     private suspend fun executeWithDnsFallback(
@@ -309,14 +309,19 @@ class CrocProcess(
             workDir = workDir.absolutePath
         )
 
-        pipeFd = croc.Croc.start(configJson).toInt()
-        if (pipeFd < 0) {
-            throw IllegalStateException("crocStart returned fd=$pipeFd")
+        // Close any previous PFD before creating a new one.
+        closePipeFd()
+
+        val fd = croc.Croc.start(configJson).toInt()
+        if (fd < 0) {
+            throw IllegalStateException("crocStart returned fd=$fd")
         }
+
+        val pfd = ParcelFileDescriptor.adoptFd(fd)
+        pipePfd = pfd
 
         _state.value = waitingState
 
-        val pfd = ParcelFileDescriptor.adoptFd(pipeFd)
         val inputStream = FileInputStream(pfd.fileDescriptor)
         return parseOutput(inputStream)
     }

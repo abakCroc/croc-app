@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"syscall"
 
 	"github.com/schollz/croc/v10/src/cli"
 	"github.com/schollz/croc/v10/src/utils"
@@ -73,10 +74,22 @@ func Start(configJson string) (int, error) {
 			}
 		}()
 		runResult = cli.Run()
+		// Close the write end of the pipe so the reader sees EOF.
 		w.Close()
 	}()
 
-	return int(r.Fd()), nil
+	// Duplicate the fd so Go can close its copy and transfer ownership to Java.
+	// This avoids an fdsan conflict: Go's unique_fd retains ownership of the
+	// original fd, while the caller (Java) takes ownership of the dup'd fd.
+	newFd, err := syscall.Dup(int(r.Fd()))
+	if err != nil {
+		return -1, fmt.Errorf("croc: dup failed: %w", err)
+	}
+	// Close the Go-owned copy so fdsan doesn't complain when Java adopts the dup'd fd.
+	r.Close()
+	pipeReader = nil
+
+	return newFd, nil
 }
 
 func WaitDone() (int, error) {
