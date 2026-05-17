@@ -14,3 +14,7 @@
 -keep class kotlinx.coroutines.android.AndroidDispatcherFactory { *; }
 -keep class kotlinx.coroutines.android.AndroidExceptionPreHandler { *; }
 -keep class kotlinx.coroutines.** { *; }
+
+# gomobile generated classes
+-keep class croc.** { *; }
+-keep class go.** { *; }

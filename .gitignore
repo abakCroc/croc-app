@@ -11,12 +11,14 @@ local.properties
 /app/build
 /app/release
 /app/src/main/jniLibs/
+/app/libs/croc.aar
 *.apk
 *.aab
 /.go-cache
 /.go-mod-cache
 /.go-telemetry
 /.fdroid-go
+/croc-mobile/vendor/
 /third_party/croc-src/build
 /misc-visitors
 *.jks

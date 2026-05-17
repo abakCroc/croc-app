@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.coroutines.coroutineContext
 import java.io.BufferedReader
 import java.io.File
@@ -29,6 +31,20 @@ class CrocProcess(
 ) {
     companion object {
         private const val TAG = "CrocProcess"
+
+        fun buildConfigJson(
+            args: List<String>,
+            env: Map<String, String>,
+            workDir: String
+        ): String {
+            val json = JSONObject()
+            json.put("args", JSONArray(args))
+            val envObj = JSONObject()
+            env.forEach { (k, v) -> envObj.put(k, v) }
+            json.put("env", envObj)
+            json.put("workDir", workDir)
+            return json.toString()
+        }
     }
 
     private val _state = MutableStateFlow<CrocTransferState>(CrocTransferState.Idle)
@@ -210,7 +226,7 @@ class CrocProcess(
 
     fun cancel() {
         try {
-            CrocNative.crocCancel()
+            croc.Croc.cancel()
         } catch (_: Exception) {}
         closePipeFd()
         _state.value = CrocTransferState.Cancelled
@@ -251,7 +267,7 @@ class CrocProcess(
         }
 
         val exitCode = try {
-            CrocNative.crocWait()
+            croc.Croc.waitDone().toInt()
         } catch (_: Exception) {
             -1
         }
@@ -287,13 +303,13 @@ class CrocProcess(
             putAll(extraEnv)
         }
 
-        val configJson = CrocNative.buildConfigJson(
+        val configJson = buildConfigJson(
             args = command,
             env = env,
             workDir = workDir.absolutePath
         )
 
-        pipeFd = CrocNative.crocStart(configJson)
+        pipeFd = croc.Croc.start(configJson).toInt()
         if (pipeFd < 0) {
             throw IllegalStateException("crocStart returned fd=$pipeFd")
         }

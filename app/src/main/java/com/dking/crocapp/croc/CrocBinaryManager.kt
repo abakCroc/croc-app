@@ -29,7 +29,10 @@ class CrocBinaryManager(private val context: Context) {
     private val _setupState = MutableStateFlow(BinarySetupState())
     val setupState: StateFlow<BinarySetupState> = _setupState.asStateFlow()
 
-    fun isBinaryReady(): Boolean = CrocNative.loaded
+    fun isBinaryReady(): Boolean = try {
+        croc.Croc.touch()
+        true
+    } catch (_: Exception) { false }
 
     fun initialize(): Boolean {
         return try {
@@ -38,23 +41,14 @@ class CrocBinaryManager(private val context: Context) {
                 title = "Loading croc",
                 detail = "Loading the transfer engine."
             )
-            val ready = CrocNative.loaded
-            if (ready) {
-                _setupState.value = BinarySetupState(
-                    phase = BinarySetupPhase.Ready,
-                    title = "croc is ready",
-                    detail = "Transfer engine loaded and ready."
-                )
-            } else {
-                _setupState.value = BinarySetupState(
-                    phase = BinarySetupPhase.Error,
-                    title = "Setup needs attention",
-                    detail = "Failed to load the transfer engine.",
-                    errorMessage = CrocNative.loadError ?: "libcroc.so could not be loaded."
-                )
-            }
-            Log.i(TAG, "Croc binary ready: $ready")
-            ready
+            croc.Croc.touch()
+            _setupState.value = BinarySetupState(
+                phase = BinarySetupPhase.Ready,
+                title = "croc is ready",
+                detail = "Transfer engine loaded and ready."
+            )
+            Log.i(TAG, "Croc binary ready: true")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Binary initialization failed", e)
             _setupState.value = BinarySetupState(
