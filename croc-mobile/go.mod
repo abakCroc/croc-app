@@ -2,7 +2,10 @@ module com.dking.crocapp.croc
 
 go 1.25.0
 
-require github.com/schollz/croc/v10 v10.0.0
+require (
+	github.com/schollz/croc/v10 v10.0.0
+	golang.org/x/mobile v0.0.0-20260514233045-7de0a8fa7f4d
+)
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
@@ -26,11 +29,13 @@ require (
 	github.com/tscholl2/siec v0.0.0-20240310163802-c2c6f6198406 // indirect
 	github.com/twmb/murmur3 v1.1.8 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
+	golang.org/x/tools v0.45.0 // indirect
 )
 
 replace (

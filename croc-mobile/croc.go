@@ -9,6 +9,9 @@ import (
 
 	"github.com/schollz/croc/v10/src/cli"
 	"github.com/schollz/croc/v10/src/utils"
+
+	// Required by gomobile/gobind at build time; not referenced in source directly.
+	_ "golang.org/x/mobile/bind"
 )
 
 var (
