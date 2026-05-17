@@ -38,7 +38,7 @@ val buildCrocAar by tasks.registering(Exec::class) {
 
     commandLine(
         "gomobile", "bind",
-        "-target=android/arm64,android/arm,android/x86_64",
+        "-target=android",
         "-androidapi=26",
         "-trimpath",
         "-ldflags=-s -w -buildid=",
