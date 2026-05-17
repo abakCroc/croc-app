@@ -97,6 +97,14 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64", "armeabi-v7a", "x86")
+            isUniversalApk = true
+        }
+    }
     buildFeatures {
         compose = true
         buildConfig = true

@@ -66,7 +66,7 @@ jobs:
 
       - name: Sign APK
         run: |
-          UNSIGNED=$(find app/build/outputs/apk/release -name '*release*.apk' | head -1)
+          UNSIGNED=$(find app/build/outputs/apk/release -name '*universal*release*.apk' | head -1)
           $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -1)/apksigner sign \
             --ks test-release.jks \
             --ks-pass pass:android \
@@ -129,21 +129,42 @@ jobs:
           echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
-      - name: Sign APK
+      - name: Sign APKs
         run: |
-          UNSIGNED=$(find app/build/outputs/apk/release -name '*release*.apk' | head -1)
-          $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -1)/apksigner sign \
-            --ks release.jks \
-            --ks-pass "pass:${{ secrets.KEYSTORE_PASSWORD }}" \
-            --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
-            --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
-            --out app/build/outputs/apk/release/croc-app-release.apk \
-            "$UNSIGNED"
+          SIGNING_TOOL="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -1)/apksigner"
+          for UNSIGNED in app/build/outputs/apk/release/*-release-unsigned.apk; do
+            FILENAME=$(basename "$UNSIGNED")
+            if [[ "$FILENAME" == *universal* ]]; then
+              OUT_NAME="croc-app.apk"
+            elif [[ "$FILENAME" == *arm64-v8a* ]]; then
+              OUT_NAME="croc-app-arm64.apk"
+            elif [[ "$FILENAME" == *x86_64* ]]; then
+              OUT_NAME="croc-app-amd64.apk"
+            elif [[ "$FILENAME" == *armeabi-v7a* ]]; then
+              OUT_NAME="croc-app-arm.apk"
+            elif [[ "$FILENAME" == *x86* ]]; then
+              OUT_NAME="croc-app-386.apk"
+            else
+              continue
+            fi
+            "$SIGNING_TOOL" sign \
+              --ks release.jks \
+              --ks-pass "pass:${{ secrets.KEYSTORE_PASSWORD }}" \
+              --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
+              --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
+              --out "app/build/outputs/apk/release/$OUT_NAME" \
+              "$UNSIGNED"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
           name: croc-app-release
-          path: app/build/outputs/apk/release/croc-app-release.apk
+          path: |
+            app/build/outputs/apk/release/croc-app.apk
+            app/build/outputs/apk/release/croc-app-arm64.apk
+            app/build/outputs/apk/release/croc-app-amd64.apk
+            app/build/outputs/apk/release/croc-app-arm.apk
+            app/build/outputs/apk/release/croc-app-386.apk
 
       - name: Create GitHub release
         env:
@@ -156,6 +177,10 @@ jobs:
             NOTES_FLAG="--notes Release ${{ steps.version.outputs.name }}"
           fi
           gh release create "v${{ steps.version.outputs.name }}" \
-            app/build/outputs/apk/release/croc-app-release.apk \
+            app/build/outputs/apk/release/croc-app.apk \
+            app/build/outputs/apk/release/croc-app-arm64.apk \
+            app/build/outputs/apk/release/croc-app-amd64.apk \
+            app/build/outputs/apk/release/croc-app-arm.apk \
+            app/build/outputs/apk/release/croc-app-386.apk \
             --title "croc-app v${{ steps.version.outputs.name }}" \
             $NOTES_FLAG
