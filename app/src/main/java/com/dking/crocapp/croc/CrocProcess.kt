@@ -1,6 +1,7 @@
 package com.dking.crocapp.croc
 
 import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.dking.crocapp.data.preferences.UserPreferencesRepository
@@ -52,6 +53,32 @@ class CrocProcess(
 
     @Volatile
     private var pipePfd: ParcelFileDescriptor? = null
+
+    private val wifiManager: WifiManager? =
+        context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+
+    @Volatile
+    private var multicastLock: WifiManager.MulticastLock? = null
+
+    private fun acquireMulticastLock() {
+        val wm = wifiManager ?: return
+        releaseMulticastLock()
+        val lock = wm.createMulticastLock("croc").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+        multicastLock = lock
+    }
+
+    private fun releaseMulticastLock() {
+        multicastLock?.let {
+            try {
+                if (it.isHeld) it.release()
+            } catch (_: Exception) {
+            }
+        }
+        multicastLock = null
+    }
 
     private data class ProcessResult(
         val exitCode: Int,
@@ -216,7 +243,8 @@ class CrocProcess(
                     waitingState = CrocTransferState.WaitingForPeer(code),
                     extraEnv = secretEnv(code),
                     prefs = prefs,
-                    opName = "Receive"
+                    opName = "Receive",
+                    holdMulticastLock = true
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Receive failed", e)
@@ -230,6 +258,7 @@ class CrocProcess(
             croc.Croc.cancel()
         } catch (_: Exception) {}
         closePipeFd()
+        releaseMulticastLock()
         _state.value = CrocTransferState.Cancelled
     }
 
@@ -252,42 +281,48 @@ class CrocProcess(
         waitingState: CrocTransferState,
         extraEnv: Map<String, String>,
         prefs: UserPreferencesRepository.CrocPreferences,
-        opName: String
+        opName: String,
+        holdMulticastLock: Boolean = false
     ) {
         Log.d(TAG, "$opName command: ${redactCommandForLog(baseCommand)}")
 
-        var result = runCommand(baseCommand, workDir, waitingState, extraEnv)
+        if (holdMulticastLock) acquireMulticastLock()
+        try {
+            var result = runCommand(baseCommand, workDir, waitingState, extraEnv)
 
-        if (shouldRetryWithInternalDns(result, prefs, baseCommand)) {
-            val retryCommand = baseCommand.toMutableList()
-            addInternalDnsFlag(retryCommand)
-            Log.w(TAG, "$opName retry with --internal-dns: ${redactCommandForLog(retryCommand)}")
+            if (shouldRetryWithInternalDns(result, prefs, baseCommand)) {
+                val retryCommand = baseCommand.toMutableList()
+                addInternalDnsFlag(retryCommand)
+                Log.w(TAG, "$opName retry with --internal-dns: ${redactCommandForLog(retryCommand)}")
+                closePipeFd()
+                result = runCommand(retryCommand, workDir, waitingState, extraEnv)
+            }
+
+            val exitCode = try {
+                croc.Croc.waitDone().toInt()
+            } catch (_: Exception) {
+                -1
+            }
+            result = result.copy(exitCode = exitCode)
             closePipeFd()
-            result = runCommand(retryCommand, workDir, waitingState, extraEnv)
-        }
 
-        val exitCode = try {
-            croc.Croc.waitDone().toInt()
-        } catch (_: Exception) {
-            -1
-        }
-        result = result.copy(exitCode = exitCode)
-        closePipeFd()
+            if (_state.value is CrocTransferState.Cancelled) {
+                return
+            }
 
-        if (_state.value is CrocTransferState.Cancelled) {
-            return
-        }
-
-        if (isSuccessfulTransfer(result)) {
-            _state.value = CrocTransferState.Completed(
-                fileNames = result.fileNames,
-                totalBytes = result.totalBytes,
-                peerIp = result.peerIp,
-                totalFileCount = result.totalFileCount.coerceAtLeast(result.fileNames.size),
-                receivedText = result.receivedText
-            )
-        } else {
-            _state.value = CrocTransferState.Error(errorMessageFor(result))
+            if (isSuccessfulTransfer(result)) {
+                _state.value = CrocTransferState.Completed(
+                    fileNames = result.fileNames,
+                    totalBytes = result.totalBytes,
+                    peerIp = result.peerIp,
+                    totalFileCount = result.totalFileCount.coerceAtLeast(result.fileNames.size),
+                    receivedText = result.receivedText
+                )
+            } else {
+                _state.value = CrocTransferState.Error(errorMessageFor(result))
+            }
+        } finally {
+            if (holdMulticastLock) releaseMulticastLock()
         }
     }
 
