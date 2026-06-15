@@ -28,6 +28,7 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
 	github.com/tscholl2/siec v0.0.0-20240310163802-c2c6f6198406 // indirect
 	github.com/twmb/murmur3 v1.1.8 // indirect
+	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
@@ -40,5 +41,6 @@ require (
 
 replace (
 	github.com/schollz/croc/v10 => ../third_party/croc-src
-	github.com/schollz/peerdiscovery => github.com/abakum/peerdiscovery v0.0.0-20251222054903-bda39395085f
+	github.com/schollz/peerdiscovery => github.com/abakum/peerdiscovery v0.0.0-20260614170419-7a998a1dc036
+	github.com/wlynxg/anet => github.com/abakum/anet v0.0.0-20260611221740-26109fc88d23
 )
